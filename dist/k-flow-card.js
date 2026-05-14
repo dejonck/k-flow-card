@@ -453,7 +453,7 @@ class KFlowCardEditor extends HTMLElement {
       labelRow('label_min_cell',         'Min Cell label',          'Min Cell',          'label_entity_min_cell'),
       labelRow('label_max_cell',         'Max Cell label',          'Max Cell',          'label_entity_max_cell'),
       labelRow('label_batt_dis',         'Batt Dis label',          'Batt Dis.',         'label_entity_batt_dis'),
-      labelRow('label_endu_eta',         'Endu ETA label',          'Battery Volt',      'label_entity_endu_eta'),
+      labelRow('label_endu_eta',         'Endu ETA label',          'Endu ETA',          'label_entity_endu_eta'),
     ]));
 
     shell.appendChild(makeSection('solar', '☀️', 'Solar', [
