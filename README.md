@@ -1,4 +1,4 @@
-# ⚡ k-flow-card
+# ⚡ k-flow-card v7.1.2
 
 > **Repository:** https://github.com/thekhan1122/k-flow-card
 
@@ -10,6 +10,7 @@ k-flow-card visualises the live power flow between your solar panels, battery, i
 
 ## ✨ Features
 
+- Fully customizable,label of boxes now can be changed, Battery etc can be disabled. Grid and Battery Flow direction cane be inverted via toggle switch.
 - Live animated energy-flow diagram (PV → Inverter → Battery / Grid / Load)
 - Animated sun arc that tracks actual sunrise / sunset from `sun.sun`
 - Dual-battery support (stacked side-by-side display)
