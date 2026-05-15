@@ -1,7 +1,7 @@
 # k-flow-card
 
 **Khan Automation — Home Assistant Custom Energy Flow Card**
-`k-flow-card.js` · Unified Edition **v7.4.0**
+`k-flow-card.js` · Unified Edition **V7.4.0**
 
 ---
 
