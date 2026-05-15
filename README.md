@@ -1,4 +1,4 @@
-# ⚡ k-flow-card v7.1.2
+# ⚡ k-flow-card v7.1.3
 
 > **Repository:** https://github.com/thekhan1122/k-flow-card
 
