@@ -453,7 +453,8 @@ class KFlowCardEditor extends HTMLElement {
       labelRow('label_min_cell',         'Min Cell label',          'Min Cell',          'label_entity_min_cell'),
       labelRow('label_max_cell',         'Max Cell label',          'Max Cell',          'label_entity_max_cell'),
       labelRow('label_batt_dis',         'Batt Dis label',          'Batt Dis.',         'label_entity_batt_dis'),
-      labelRow('label_endu_eta',         'Endu ETA label',          'Endu ETA',          'label_entity_endu_eta'),
+      labelRow('label_endu_eta',         'Endu ETA label',          'Battery Volt',      'label_entity_endu_eta'),
+      labelRow('label_total_pv_gen',     'Total PV Gen label',      'TOTAL PV GEN.',     'total_pv_gen_entity'),
     ]));
 
     shell.appendChild(makeSection('solar', '☀️', 'Solar', [
@@ -474,6 +475,9 @@ class KFlowCardEditor extends HTMLElement {
       picker('today_batt_chg',  'Today Batt Charge'),
       picker('today_load',      'Today Load'),
       picker('consump',         'House Consumption'),
+      divider(),
+      textField('label_total_pv_gen', 'Total PV Generation label', 'TOTAL PV GEN.'),
+      pickerMaybeDisabled('total_pv_gen_entity', 'Total PV Generation', labelsEnabled),
     ]));
 
     shell.appendChild(makeSection('grid', '🔌', 'Grid', [
@@ -600,6 +604,8 @@ class KFlowCard extends HTMLElement {
       label_max_cell: 'Max Cell',
       label_batt_dis: 'Batt Dis.',
       label_endu_eta: 'Battery Volt',
+      total_pv_gen_entity: 'sensor.goodwe_total_pv_generation',
+      label_total_pv_gen: 'TOTAL PV GEN.',
       label_entity_cell_temp: '',
       label_entity_bms_temp: '',
       label_entity_endurance: '',
@@ -721,18 +727,16 @@ class KFlowCard extends HTMLElement {
     const battTextSingle = `
       <text id="battPwrFlow" x="75" y="165" font-size="10" font-weight="600" fill="#cde">-- W</text>
       <text id="battCurrFlow" x="75" y="196" font-size="10" font-weight="600" fill="#fff">-- A</text>
-      <text id="bEnduranceSvg" x="40" y="268" text-anchor="middle" font-size="10" font-weight="600" fill="#8b949e">--</text>
-      <text id="bEnduEtaLabel" x="40" y="282" text-anchor="middle" font-size="8" fill="#8b949e" letter-spacing="0.5">ENDU</text>
-      <text id="bEnduEta" x="40" y="294" text-anchor="middle" font-size="9" font-weight="700" fill="#8b949e">--</text>
+      <text id="bEnduEtaLabel" x="8" y="300" text-anchor="start" font-size="9" fill="#8b949e" letter-spacing="0.5">ENDU</text>
+      <text id="bEnduranceSvg" x="8" y="314" text-anchor="start" font-size="11" font-weight="600" fill="#8b949e">--</text>
     `;
     const battTextDual = `
       <text id="battPwrFlow1" x="75" y="158" font-size="10" font-weight="600" fill="#cde">-- W</text>
       <text id="battPwrFlow2" x="75" y="171" font-size="10" font-weight="600" fill="#cde">-- W</text>
       <text id="battCurrFlow1" x="75" y="196" font-size="10" font-weight="600" fill="#fff">-- A</text>
       <text id="battCurrFlow2" x="75" y="209" font-size="10" font-weight="600" fill="#fff">-- A</text>
-      <text id="bEnduranceSvg" x="40" y="281" text-anchor="middle" font-size="10" font-weight="600" fill="#8b949e">--</text>
-      <text id="bEnduEtaLabel" x="40" y="295" text-anchor="middle" font-size="8" fill="#8b949e" letter-spacing="0.5">ENDU</text>
-      <text id="bEnduEta" x="40" y="307" text-anchor="middle" font-size="9" font-weight="700" fill="#8b949e">--</text>
+      <text id="bEnduEtaLabel" x="8" y="313" text-anchor="start" font-size="9" fill="#8b949e" letter-spacing="0.5">ENDU</text>
+      <text id="bEnduranceSvg" x="8" y="327" text-anchor="start" font-size="11" font-weight="600" fill="#8b949e">--</text>
     `;
 
     const batteryTip = `<rect x="75" y="126" width="18" height="4" rx="2" fill="url(#battCapGrad)"/>`;
@@ -886,7 +890,7 @@ class KFlowCard extends HTMLElement {
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;margin-top:5px">
         <div class="st"><div class="l">${this.config.label_cell_temp_minmax || 'CELL TEMP MIN/MAX'}</div><div class="v" id="bTemp1">-- °C</div></div>
         <div class="st"><div class="l">${this.config.label_bms_temp || 'BMS TEMP'}</div><div class="v" id="bTemp2">-- °C</div></div>
-        <div class="st"><div class="l">${this.config.label_endurance || 'ENDURANCE'}</div><div class="v" id="bEndurance">--</div></div>
+        <div class="st"><div class="l">${this.config.label_total_pv_gen || 'TOTAL PV GEN.'}</div><div class="v" id="bTotalPvGen">-- kWh</div></div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;margin-top:4px">
         <div class="st"><div class="l">${this.config.label_min_cell || 'Min Cell'}</div><div class="v" id="bMinCell">-- V</div></div>
@@ -1113,52 +1117,26 @@ class KFlowCard extends HTMLElement {
         endText = 'ETA ' + this._fmtTime(eta); endColor = '#00d7ff';
       }
     }
-    setText('bEndurance', endText);
-    getEl('bEndurance').style.color = endColor;
-    setText('bEnduranceSvg', endText);
-    const _bEndSvg = getEl('bEnduranceSvg'); if (_bEndSvg) { _bEndSvg.setAttribute('fill', endColor); }
-
-    // bEnduEta — same logic, shown below the battery icon in SVG
-    // Label switches between "ENDU" (discharging) and "ETA" (charging)
-    {
-      let enduEtaText = '--', enduEtaColor = '#8b949e', enduEtaLabelText = 'ENDU';
-      if (dual) {
-        const remCap2b = (battSoc2 / 100) * fullAh;
-        const totalRemWhB = (remCap1 / fullAh * fullWh) + (remCap2b / fullAh * fullWh);
-        const totalPowerB = battPwr1 + battPwr2;
-        if (totalPowerB < -10) {
-          const left = totalRemWhB / Math.abs(totalPowerB);
-          enduEtaText = this._fmtTime(left);
-          enduEtaColor = left >= 5 ? '#4ade80' : '#f85149';
-          enduEtaLabelText = 'ENDU';
-        } else if (totalPowerB > 10) {
-          const totalWhB = fullWh * 2;
-          const missingWhB = totalWhB - totalRemWhB;
-          const eta = Math.max(0, missingWhB / totalPowerB);
-          enduEtaText = this._fmtTime(eta);
-          enduEtaColor = '#00d7ff';
-          enduEtaLabelText = 'ETA';
-        }
+    // Total PV Generation stat tile
+    const _totalPvGenEl = getEl('bTotalPvGen');
+    if (_totalPvGenEl) {
+      const totalPvGenEntity = this.config.total_pv_gen_entity || 'sensor.goodwe_total_pv_generation';
+      const totalPvGenState = this._hass && this._hass.states[totalPvGenEntity];
+      if (totalPvGenState) {
+        const val = parseFloat(totalPvGenState.state);
+        const unit = totalPvGenState.attributes.unit_of_measurement || 'kWh';
+        _totalPvGenEl.textContent = isNaN(val) ? '--' : val.toFixed(1) + ' ' + unit;
+        _totalPvGenEl.style.color = '#f4d03f';
       } else {
-        const remWhB = (remCap1 / fullAh) * fullWh;
-        if (battPwr1 < -10) {
-          const left = remWhB / Math.abs(battPwr1);
-          enduEtaText = this._fmtTime(left);
-          enduEtaColor = left >= 5 ? '#4ade80' : '#f85149';
-          enduEtaLabelText = 'ENDU';
-        } else if (battPwr1 > 10) {
-          const missingWhB = ((fullAh - remCap1) / fullAh) * fullWh;
-          const eta = Math.max(0, missingWhB / Math.abs(battPwr1));
-          enduEtaText = this._fmtTime(eta);
-          enduEtaColor = '#00d7ff';
-          enduEtaLabelText = 'ETA';
-        }
+        _totalPvGenEl.textContent = '-- kWh';
+        _totalPvGenEl.style.color = '#8b949e';
       }
-      const _enduLbl = getEl('bEnduEtaLabel');
-      if (_enduLbl) { _enduLbl.textContent = this.config.label_endu_eta || enduEtaLabelText; _enduLbl.setAttribute('fill', enduEtaColor); }
-      const _enduVal = getEl('bEnduEta');
-      if (_enduVal) { _enduVal.textContent = enduEtaText; _enduVal.setAttribute('fill', enduEtaColor); }
     }
+    // SVG label + value below battery icon (ENDU/ETA)
+    const _bEndSvg = getEl('bEnduranceSvg');
+    if (_bEndSvg) { _bEndSvg.textContent = endText.replace(/^ETA /, ''); _bEndSvg.setAttribute('fill', endColor); }
+    const _enduLbl = getEl('bEnduEtaLabel');
+    if (_enduLbl) { _enduLbl.textContent = endText.startsWith('ETA') ? 'ETA' : 'ENDU'; _enduLbl.setAttribute('fill', endColor); }
 
     const pwrBar = getEl('pwrBar');
     if (pwrBar) {
