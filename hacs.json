@@ -1,5 +1,4 @@
 {
   "name": "k-flow-card",
-  "type": "plugin",
-  "render_readme": true
+  "render_as": "canvas"
 }
