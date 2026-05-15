@@ -2,6 +2,9 @@
 
 **Khan Automation — Home Assistant Custom Energy Flow Card**
 `k-flow-card.js` · Unified Edition **V7.4.0**
+<img width="1708" height="2520" alt="IMG_20260513_114249" src="https://github.com/user-attachments/assets/e4c54570-5b9e-43c4-9326-b44d4105a5d1" />
+<img width="1108" height="1688" alt="IMG_20260516_011350" src="https://github.com/user-attachments/assets/6914d4ab-daa6-432a-983d-6abac15a1cac" />
+<img width="1114" height="1744" alt="IMG_20260516_011300" src="https://github.com/user-attachments/assets/ce97703f-ed71-4ab9-a79d-8d7cf3bcd3f6" />
 
 ---
 
