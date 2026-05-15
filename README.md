@@ -32,17 +32,39 @@ The card combines an SVG energy-flow canvas (sun arc, animated flow paths, inver
 
 ## Installation
 
+### Method 1 — HACS (Recommended)
+
+`k-flow-card` is available in the HACS Community Store.
+
+1. Open HACS in your Home Assistant sidebar.
+2. Go to **Frontend**.
+3. Click the **+ Explore & Download Repositories** button.
+4. Search for **k-flow-card**.
+5. Click **Download** and confirm.
+6. **Hard refresh** your browser (`Ctrl + Shift + R` / `Cmd + Shift + R`).
+7. Add to a dashboard view:
+   ```yaml
+   type: custom:k-flow-card
+   ```
+8. Open the visual editor to configure entities.
+
+> HACS handles resource registration automatically. No manual resource entry needed.
+
+---
+
+### Method 2 — Manual
+
 1. Copy `k-flow-card.js` to your HA config folder:
    ```
    /config/www/k-flow-card.js
    ```
 
-2. Add as a Lovelace resource:
+2. Register as a Lovelace resource:
+   *(Settings → Dashboards → Resources → Add)*
    ```yaml
    url: /local/k-flow-card.js
    type: module
    ```
-   *(Settings → Dashboards → Resources → Add)*
 
 3. Add to a dashboard view:
    ```yaml
@@ -282,8 +304,85 @@ k-flow-card.js
 
 - Tested on Home Assistant OS (HAOS) with GoodWe ET/ES inverter integration and JK BMS Bluetooth integration.
 - The card uses shadow DOM — custom CSS from themes does not penetrate the card. All colours are hardcoded or driven by entity values.
-- No external libraries or HACS dependencies. Load as a single `type: module` resource.
 - Config keys prefixed with `_` (e.g. `_show_battery`) are editor-only boolean toggles — they control visibility but are stored in the card config YAML.
+- When installed via HACS, the resource is registered automatically. When installed manually, register as `type: module`.
+
+---
+
+## Troubleshooting
+
+### Card does not appear / shows "Custom element doesn't exist"
+
+- Confirm the resource is registered: **Settings → Dashboards → Resources**. You should see `/hacsfiles/k-flow-card/k-flow-card.js` (HACS) or `/local/k-flow-card.js` (manual) with type `JavaScript Module`.
+- Hard refresh the browser: `Ctrl + Shift + R` (Windows/Linux) or `Cmd + Shift + R` (Mac).
+- If using the mobile app, clear app cache or force-close and reopen.
+- If installed manually, confirm the file is at `/config/www/k-flow-card.js` — not inside a subfolder.
+
+---
+
+### Visual editor is blank or fails to load
+
+- Open browser DevTools (`F12`) → Console tab. Look for any red errors referencing `k-flow-card`.
+- Ensure no other version of `k-flow-card.js` is registered as a duplicate resource. Go to Resources and remove any stale entries.
+- Try clearing the HA frontend cache: **Developer Tools → Template** → reload page.
+
+---
+
+### Entities show `--` or do not update
+
+- Open **Developer Tools → States** and confirm the entity ID exists and has a valid numeric state (not `unavailable` or `unknown`).
+- Entity IDs are case-sensitive. Check for typos in the editor.
+- If using GoodWe integration, ensure the inverter is online and the integration is polling correctly.
+- The card skips `unavailable` and `unknown` states by design — the tile will show `--` until the entity returns a valid value.
+
+---
+
+### Flow animations not showing
+
+- The card requires `sun.sun` to be present for the sun arc. If it is missing, the sun node will not animate but the rest of the card will function normally.
+- Flow path animations are driven by power values. A path will only animate when its corresponding power reading is above zero.
+- If all flows are static, check that your inverter entities are returning live values and not stale/unavailable states.
+
+---
+
+### Battery section is missing
+
+- The Primary Battery section requires `_show_battery: true`. In the visual editor, click the **+ Enable** chip next to **Primary Battery**.
+- Secondary Battery, EV, Extra PV Strings, System Limits, and Labels sections each have their own **+ Enable** chip — they are hidden by default.
+
+---
+
+### Endurance tile shows `--` or incorrect time
+
+- The endurance calculation requires `battery_full_ah` (capacity in Ah) and `battery_current` to be set and returning valid values.
+- If the battery is neither charging nor discharging (current ≈ 0), the tile will show `--` as no meaningful estimate is possible.
+- Ensure `battery_full_ah` in **System Limits** matches your actual battery capacity.
+
+---
+
+### Labels section entity pickers are greyed out
+
+- The **Labels** section must be enabled first via the **+ Enable** chip in the section header.
+- Once enabled, each entity picker unlocks **only after you change that row's label text** away from its default. This is by design — it prevents accidental entity overrides.
+- To unlock the Cell Temp entity picker, for example, change the label text from `CELL TEMP MIN/MAX` to anything else.
+
+---
+
+### After update via HACS, card looks wrong or broken
+
+1. Hard refresh the browser (`Ctrl + Shift + R`).
+2. If the issue persists, go to **Settings → Dashboards → Resources**, delete the k-flow-card entry, then re-add it (HACS will re-register it on the next HA restart).
+3. Restart Home Assistant and hard refresh again.
+
+---
+
+### Reporting a bug
+
+When reporting an issue, include:
+- Home Assistant version
+- k-flow-card version (visible in browser DevTools console on load)
+- Browser console errors (screenshot or copy-paste)
+- Relevant section of your card YAML config (remove sensitive entity names if needed)
 
 ---
 
