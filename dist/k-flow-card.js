@@ -1,4 +1,4 @@
-// k-flow-card.js – Unified Edition v7.4.0
+// k-flow-card.js – Unified Edition v1.0.1
 // Changes v7.4.0:
 //   - Labels section: switchRow replaced by header chip (+ Enable / ✓ Enabled style).
 //   - Per-row auto-enable: each entity picker unlocks only when its label text ≠ default.
