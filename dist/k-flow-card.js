@@ -1,5 +1,5 @@
-// k-flow-card.js - Unified Edition v1.2.0
-// Changes v1.2.0 - Final Entity-Type and Display Fixes:
+// k-flow-card.js - Unified Edition v1.1.0
+// Changes v1.1.0 - Final Entity-Type and Display Fixes:
 //   - _smartRead(): core logic rewritten. Uses state_class + unit_of_measurement
 //     to decide numeric vs state entity - not parseFloat alone.
 //     Battery mode sensors returning numeric enum (0=idle,1=charging,2=discharging)
