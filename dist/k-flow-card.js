@@ -1,10 +1,20 @@
-// k-flow-card.js – Unified Edition v1.0.1
-// Changes v7.4.0:
-//   - Labels section: switchRow replaced by header chip (+ Enable / ✓ Enabled style).
-//   - Per-row auto-enable: each entity picker unlocks only when its label text ≠ default.
-//   - Corresponding Battery/Solar pickers lock per-row (not globally).
-//   - _updateDynamic: clean _rowActive + _readNum/_readStr helpers (replaces old monolithic labelsOn check).
-//   - _set: re-renders on any of the 6 label text key changes.
+// k-flow-card.js - Unified Edition v1.2.0
+// Changes v1.2.0 - Final Entity-Type and Display Fixes:
+//   - _smartRead(): core logic rewritten. Uses state_class + unit_of_measurement
+//     to decide numeric vs state entity - not parseFloat alone.
+//     Battery mode sensors returning numeric enum (0=idle,1=charging,2=discharging)
+//     with no unit and no state_class now show their raw state string
+//     ("Charging", "Idle") instead of a formatted number ("1.00").
+//     Rule: unit != empty OR state_class in [measurement,total,total_increasing]
+//     -> numeric. Everything else -> state string (shown capitalised).
+//   - Fixed double invRemKwh if-block: style.color was being set twice.
+// Changes v1.1.0 - Deep Audit and Entity-Type Fixes:
+//   - _smartRead(): replaces _readNum/_readUnit/_fmtCustom pipeline.
+//   - _fmtVal(): unified numeric formatter with semantic colour per unit.
+//   - Measurement sensors preserved as null through to tile render.
+//   - Battery volt/curr show '-- V' / '-- A' when sensor unavailable.
+//   - Battery/EV power auto-switches to kW at >=1000 W.
+//   - battDis native path null-safe: '-- kWh' when unavailable.
 
 // ═══════════════════════════════════════════════════════════════
 // VISUAL EDITOR
@@ -185,7 +195,7 @@ class KFlowCardEditor extends HTMLElement {
       if (opts.toggleKey) {
         const chip = document.createElement('span');
         chip.className = 'toggle-chip' + (opts.toggleOn ? ' on' : '');
-        chip.innerHTML = opts.toggleOn ? `✓ Enabled` : `＋ Enable`;
+        chip.innerHTML = opts.toggleOn ? `&#x2713; Enabled` : `+ Enable`;
         chip.addEventListener('click', (e) => {
           e.stopPropagation();
           this._set(opts.toggleKey, !opts.toggleOn);
@@ -362,7 +372,7 @@ class KFlowCardEditor extends HTMLElement {
     };
 
     // ═══ Build sections ═══
-    shell.appendChild(makeSection('general', '⚙️', 'General', [
+    shell.appendChild(makeSection('general',      '⚙',  'General', [
       textField('inverter_name', 'Inverter Name', 'e.g. My Inverter'),
     ]));
 
@@ -414,7 +424,7 @@ class KFlowCardEditor extends HTMLElement {
       entityRow.style.cssText = 'margin-top:-6px;margin-bottom:14px;';
       const entityLabel = document.createElement('div');
       entityLabel.style.cssText = 'font-size:.72rem;color:var(--secondary-text-color);padding:0 2px 3px;line-height:1;';
-      entityLabel.textContent = active ? 'Entity (overrides default)' : 'Entity — change label to unlock';
+      entityLabel.textContent = active ? 'Entity (overrides default)' : 'Entity - change label to unlock';
       const sel = document.createElement('ha-selector');
       sel.hass = this._hass;
       sel.selector = { entity: {} };
@@ -446,7 +456,7 @@ class KFlowCardEditor extends HTMLElement {
       return info;
     })();
 
-    shell.appendChild(makeSection('labels', '🏷️', 'Labels', [
+    shell.appendChild(makeSection('labels',       '🏷', 'Labels', [
       labelInfoBanner,
       labelRow('label_cell_temp_minmax', 'Cell Temp Min/Max label', 'CELL TEMP MIN/MAX', 'label_entity_cell_temp', cellTempActive),
       labelRow('label_bms_temp',         'BMS Temp label',          'BMS TEMP',          'label_entity_bms_temp',  bmsTempActive),
@@ -456,17 +466,17 @@ class KFlowCardEditor extends HTMLElement {
       labelRow('label_total_pv_gen',     'Total PV Gen label',      'TOTAL PV GEN.',     'total_pv_gen_entity',    totalPvGenActive),
     ], { toggleKey: '_labels_custom_entities', toggleOn: labelsEnabled, hidden: !labelsEnabled }));
 
-    shell.appendChild(makeSection('solar', '☀️', 'Solar', [
+    shell.appendChild(makeSection('solar',        '☀', 'Solar', [
       picker('pv1_power', 'PV1 Power'),
       picker('pv2_power', 'PV2 Power'),
     ]));
 
-    shell.appendChild(makeSection('solar_extra', '☀️', 'Extra PV Strings', [
+    shell.appendChild(makeSection('solar_extra',  '☀', 'Extra PV Strings', [
       picker('pv3_power', 'PV3 Power', true),
       picker('pv4_power', 'PV4 Power', true),
     ], { toggleKey: '_show_pv_extra', toggleOn: showPVExtra, hidden: !showPVExtra }));
 
-    shell.appendChild(makeSection('solar_extras', '☀️', 'Solar Extras', [
+    shell.appendChild(makeSection('solar_extras', '☀', 'Solar Extras', [
       picker('pv_total_power',  'Total PV Power',  true),
       divider(),
       picker('inv_temp',        'Inverter Temp'),
@@ -518,7 +528,7 @@ class KFlowCardEditor extends HTMLElement {
       numberField('battery2_full_wh', 'Battery 2 Capacity (if different from Batt 1)', 0, 50000, 1, 'Wh'),
     ], { toggleKey: '_show_battery2', toggleOn: showBatt2, hidden: !showBatt2 }));
 
-    shell.appendChild(makeSection('limits', '⚙️', 'System Limits', [
+    shell.appendChild(makeSection('limits',       '⚙', 'System Limits', [
       numberField('battery_full_ah',    'Battery Capacity',  0, 2000,  1,   'Ah'),
       numberField('battery_full_wh',    'Battery Capacity',  0, 50000, 1,   'Wh'),
       numberField('inverter_max_power', 'Inverter Max Power',1000,20000,100, 'W'),
@@ -685,7 +695,7 @@ class KFlowCard extends HTMLElement {
     let bell = 0.5;
 
     if (attrs && attrs.azimuth != null && attrs.elevation != null) {
-      const az = parseFloat(attrs.azimuth);   // 0–360, east rise ~90, west set ~270
+      const az = parseFloat(attrs.azimuth);   // 0-360, east rise ~90, west set ~270
       const el = parseFloat(attrs.elevation); // degrees above/below horizon
       night = el < 0;
       // Map azimuth to t (0=east/rise, 1=west/set).
@@ -706,7 +716,7 @@ class KFlowCard extends HTMLElement {
       // Normalise this into a 0→1 range by treating the night arc as 180° wide too.
       if (night) {
         // Night azimuth: 270→360 becomes 0→0.5, 0→90 becomes 0.5→1
-        const nightAz = az >= 270 ? az - 270 : az + 90; // maps 270°→0 and 90°→180
+        const nightAz = az >= 270 ? az - 270 : az + 90; // maps 270->0 and 90->180
         t = Math.max(0, Math.min(1, nightAz / 180));
       }
     } else if (attrs) {
@@ -955,9 +965,9 @@ class KFlowCard extends HTMLElement {
         </div>
       </div>
       <div class="dv"></div>
-      <div class="ct">☀️ Inverter</div>
+      <div class="ct">☀ Inverter</div>
       <div class="pvf">
-        <div class="pvi"><div class="ico">☀️</div><div class="lbl">Today PV</div><div class="val yw" id="invTodayPv">-- kWh</div></div>
+        <div class="pvi"><div class="ico">☀</div><div class="lbl">Today PV</div><div class="val yw" id="invTodayPv">-- kWh</div></div>
         <div class="pvi"><div class="ico">🔋</div><div class="lbl">Chg / Dis</div><div class="val" id="invTodayBattChg">-- kWh</div><div class="val" id="invTodayBattDis" style="font-size:.62rem;color:#8b949e;margin-top:1px">-- kWh</div></div>
         <div class="pvi"><div class="ico">⚡</div><div class="lbl">Remaining</div><div class="val" id="invRemCap">-- Ah</div><div class="val" id="invRemKwh" style="font-size:.62rem;color:#8b949e;margin-top:1px">-- kWh</div></div>
         <div class="pvi"><div class="ico">🏡</div><div class="lbl">Today Load</div><div class="val" id="invTodayLoad">-- kWh</div></div>
@@ -996,17 +1006,20 @@ class KFlowCard extends HTMLElement {
     const todayPv = _n(_todayPvRaw);
     const todayBattChg = _n(_todayBattChgRaw);
     const todayLoad = _n(_todayLoadRaw);
+    // Power/flow values collapse to 0 safely (0 = valid "no flow" state)
     const battSoc1 = _n(this._val(this.config.battery_soc) ?? this._val(this.config.goodwe_battery_soc));
     let battPwr1 = _nullOr0(this._val(this.config.battery_power));
     if (this.config.invert_battery_power) battPwr1 = -battPwr1;
     let battCurr1 = _nullOr0(this._val(this.config.battery_current) ?? this._val(this.config.goodwe_battery_curr));
     if (this.config.invert_battery_power) battCurr1 = -battCurr1;
-    const battVolt1 = _n(this._val(this.config.battery_voltage));
-    const temp1_1 = _n(this._val(this.config.battery_temp1));
-    const temp2_1 = _n(this._val(this.config.battery_temp2));
-    const mos1 = _n(this._val(this.config.battery_mos));
-    const minCell1 = _n(this._val(this.config.battery_min_cell));
-    const maxCell1 = _n(this._val(this.config.battery_max_cell));
+    // Measurement sensors: keep null so tiles show '--' not false-zero
+    const battVolt1Raw = this._val(this.config.battery_voltage);
+    const battVolt1    = battVolt1Raw ?? 0; // used for endurance math only
+    const temp1_1 = this._val(this.config.battery_temp1);
+    const temp2_1 = this._val(this.config.battery_temp2);
+    const mos1    = this._val(this.config.battery_mos);
+    const minCell1 = this._val(this.config.battery_min_cell);
+    const maxCell1 = this._val(this.config.battery_max_cell);
     const battDis1Raw = this._val(this.config.batt_dis);
     const battDis1 = _n(battDis1Raw);
     const invTemp = _n(this._val(this.config.inv_temp));
@@ -1027,8 +1040,9 @@ class KFlowCard extends HTMLElement {
     let battPwr2 = dual ? _nullOr0(this._val(this.config.battery2_power)) : 0;
     let battCurr2 = dual ? _nullOr0(this._val(this.config.battery2_current)) : 0;
     if (dual && this.config.invert_battery_power) { battPwr2 = -battPwr2; battCurr2 = -battCurr2; }
-    const battVolt2 = dual ? _n(this._val(this.config.battery2_voltage)) : 0;
-    const mos2 = dual ? _n(this._val(this.config.battery2_mos)) : 0;
+    const battVolt2Raw = dual ? this._val(this.config.battery2_voltage) : null;
+    const battVolt2    = battVolt2Raw ?? 0;
+    const mos2 = dual ? this._val(this.config.battery2_mos) : null;
 
     const chargerPower = _n(this._val(this.config.charger_power));
     const chargerCurrent = _n(this._val(this.config.charger_current));
@@ -1114,6 +1128,10 @@ class KFlowCard extends HTMLElement {
     if (homeImg) { homeImg.style.opacity = load > 10 ? '1' : '0.7'; homeImg.setAttribute('filter', load > 10 ? 'url(#iconGlowOrange)' : ''); }
 
     // Battery fill & stats
+    // Helpers for null-safe display
+    const _fmtV   = (v)   => v !== null && v > 0   ? v.toFixed(1) + ' V' : '-- V';
+    const _fmtA   = (v)   => v !== null             ? v.toFixed(1) + ' A' : '-- A';
+    const _fmtW   = (abs) => abs >= 1000            ? (abs / 1000).toFixed(2) + ' kW' : abs.toFixed(0) + ' W';
     if (dual) {
       const fill1 = this._battFill(battSoc1); const fill2 = this._battFill(battSoc2);
       const bf1 = getEl('battFillBar1'); if (bf1) { bf1.setAttribute('y', fill1.y); bf1.setAttribute('height', fill1.height); bf1.setAttribute('fill', fill1.color); bf1.setAttribute('filter', fill1.filter); }
@@ -1122,31 +1140,24 @@ class KFlowCard extends HTMLElement {
       const bh2 = getEl('battFillHL2'); if (bh2) { bh2.setAttribute('y', fill2.y); bh2.setAttribute('height', fill2.height); }
       setText('fcBattVal1', battSoc1 + '%'); setAttr('fcBattVal1', 'fill', fill1.textColor);
       setText('fcBattVal2', battSoc2 + '%'); setAttr('fcBattVal2', 'fill', fill2.textColor);
-      setText('battVoltageFlow1', battVolt1.toFixed(1) + ' V'); setText('battVoltageFlow2', battVolt2.toFixed(1) + ' V');
-      // Current & power placed outside battery group
-      setText('battPwrFlow1', Math.abs(battPwr1).toFixed(0) + ' W');
-      setText('battCurrFlow1', battCurr1.toFixed(1) + ' A');
-      setText('battPwrFlow2', Math.abs(battPwr2).toFixed(0) + ' W');
-      setText('battCurrFlow2', battCurr2.toFixed(1) + ' A');
+      setText('battVoltageFlow1', _fmtV(battVolt1Raw)); setText('battVoltageFlow2', _fmtV(battVolt2Raw));
+      setText('battPwrFlow1',  _fmtW(Math.abs(battPwr1)));
+      setText('battCurrFlow1', _fmtA(battCurr1));
+      setText('battPwrFlow2',  _fmtW(Math.abs(battPwr2)));
+      setText('battCurrFlow2', _fmtA(battCurr2));
       const bolt1 = getEl('battBoltGroup1'), bolt2 = getEl('battBoltGroup2');
       if (bolt1) bolt1.setAttribute('opacity', (battPwr1 > 10 && absPwr1 >= 10) ? '1' : '0');
       if (bolt2) bolt2.setAttribute('opacity', (battPwr2 > 10 && Math.abs(battPwr2) >= 10) ? '1' : '0');
-      // Fix #16: bTemp1/bTemp2 written once below in the label override block — skip early write
-      // bMinCell, bMaxCell, bBattDis handled by label override block below
     } else {
       const fill = this._battFill(battSoc1);
       const bf = getEl('battFillBar'); if (bf) { bf.setAttribute('y', fill.y); bf.setAttribute('height', fill.height); bf.setAttribute('fill', fill.color); bf.setAttribute('filter', fill.filter); }
       const bh = getEl('battFillHL'); if (bh) { bh.setAttribute('y', fill.y); bh.setAttribute('height', fill.height); }
       setText('fcBattVal', battSoc1 + '%'); setAttr('fcBattVal', 'fill', fill.textColor);
-      setText('battVoltageFlow', battVolt1.toFixed(1) + ' V');
-      setText('battPwrFlow', absPwr1.toFixed(0) + ' W');
-      setText('battCurrFlow', battCurr1.toFixed(1) + ' A');
+      setText('battVoltageFlow', _fmtV(battVolt1Raw));
+      setText('battPwrFlow',  _fmtW(absPwr1));
+      setText('battCurrFlow', _fmtA(battCurr1));
       const bolt = getEl('battBoltGroup'); if (bolt) bolt.setAttribute('opacity', (battPwr1 > 10 && absPwr1 >= 10) ? '1' : '0');
-      // Fix #16: bTemp1/bTemp2 written once below in the label override block — skip early write
-      // bMinCell, bMaxCell, bBattDis handled by label override block below
     }
-
-    // Color and value for cell tiles — handled by label override block below
 
     // Endurance
     let endHours = null, endText = '--', endColor = '#8b949e', isETA = false;
@@ -1176,18 +1187,26 @@ class KFlowCard extends HTMLElement {
       }
     }
     // Total PV Generation stat tile
+    // Uses its own entity key (not label_entity_*) — reads directly from HA.
+    // Guards: unavailable/unknown state → '--'; non-numeric state → display as string.
     const _totalPvGenEl = getEl('bTotalPvGen');
     if (_totalPvGenEl) {
       const totalPvGenEntity = this.config.total_pv_gen_entity || 'sensor.goodwe_total_pv_generation';
-      const totalPvGenState = this._hass && this._hass.states[totalPvGenEntity];
-      if (totalPvGenState) {
-        const val = parseFloat(totalPvGenState.state);
-        const unit = totalPvGenState.attributes.unit_of_measurement || 'kWh';
-        _totalPvGenEl.textContent = isNaN(val) ? '--' : val.toFixed(1) + ' ' + unit;
-        _totalPvGenEl.style.color = '#f4d03f';
-      } else {
+      const totalPvGenState  = this._hass?.states[totalPvGenEntity];
+      if (!totalPvGenState || totalPvGenState.state === 'unavailable' || totalPvGenState.state === 'unknown') {
         _totalPvGenEl.textContent = '-- kWh';
         _totalPvGenEl.style.color = '#8b949e';
+      } else {
+        const val  = parseFloat(totalPvGenState.state);
+        const unit = totalPvGenState.attributes?.unit_of_measurement || 'kWh';
+        if (isNaN(val)) {
+          // Non-numeric state — show as-is (should be rare for a generation sensor)
+          _totalPvGenEl.textContent = totalPvGenState.state;
+          _totalPvGenEl.style.color = '#c9d1d9';
+        } else {
+          _totalPvGenEl.textContent = val.toFixed(1) + ' ' + unit;
+          _totalPvGenEl.style.color = '#f4d03f';
+        }
       }
     }
     const pwrBar = getEl('pwrBar');
@@ -1202,9 +1221,9 @@ class KFlowCard extends HTMLElement {
     setText('invTempFlow', invTemp.toFixed(1) + ' °C');
     setText('invNameLabel', this.config.inverter_name || 'INV');
     setAttr('invTempFlow', 'fill', invTemp <= 45 ? '#58a6ff' : invTemp <= 55 ? '#f39c4b' : '#f85149');
-    const invLoadPct = Math.min(load / invMax * 100, 100).toFixed(0);
-    // Fix #8: toFixed() returns a string; use Number() for the colour comparison
-    setText('invLoadPctFlow', invLoadPct + '%'); setAttr('invLoadPctFlow', 'fill', Number(invLoadPct) <= 50 ? '#3fb950' : '#f39c4b');
+    const invLoadPct = Math.min(load / invMax * 100, 100); // number - keep as number for comparison
+    setText('invLoadPctFlow', invLoadPct.toFixed(0) + '%');
+    setAttr('invLoadPctFlow', 'fill', invLoadPct <= 50 ? '#3fb950' : '#f39c4b');
 
     const gridDir = gridActive > 10 ? '▼ ' : gridActive < -10 ? '▲ ' : '';
     // Fix #7: grid power now auto-switches to kW like load/PV (was always showing W)
@@ -1233,157 +1252,211 @@ class KFlowCard extends HTMLElement {
     setText('invTodayBattDis', battDis1Raw      !== null ? battDis1.toFixed(2)     + ' kWh' : '-- kWh');
     setText('invTodayLoad',    _todayLoadRaw    !== null ? todayLoad.toFixed(2)    + ' kWh' : '-- kWh');
     // ── Remaining Ah + kWh ──
-    const totalRemAh = remCap1 + (dual ? (battSoc2 / 100) * fullAh : 0);
-    const avgVolt = dual && battVolt2 > 0 ? (battVolt1 + battVolt2) / 2 : battVolt1;
-    const totalRemKwh = avgVolt > 0 ? (totalRemAh * avgVolt / 1000) : null;
+    const totalRemAh  = remCap1 + (dual ? (battSoc2 / 100) * fullAh : 0);
+    // kWh uses configured fullWh × SOC — live voltage must NOT be used here
+    // (high-voltage batteries like FoxESS 4800 run at 400–480V, causing kWh
+    // to read 20%+ too high when multiplied by live voltage at high SOC)
+    const remWh1      = (battSoc1 / 100) * fullWh;
+    const remWh2      = dual ? (battSoc2 / 100) * fullWh : 0;
+    const totalRemKwh = (remWh1 + remWh2) / 1000;
     const invRemCapEl = getEl('invRemCap');
     const invRemKwhEl = getEl('invRemKwh');
     const remColor = this._remCapColor((remCap1 / fullAh) * 100);
     if (invRemCapEl) { invRemCapEl.textContent = totalRemAh.toFixed(1) + ' Ah'; invRemCapEl.style.color = remColor; }
-    if (invRemKwhEl) {
-      invRemKwhEl.textContent = totalRemKwh !== null ? totalRemKwh.toFixed(2) + ' kWh' : '-- kWh';
-      invRemKwhEl.style.color = remColor;
-    }
+    if (invRemKwhEl) { invRemKwhEl.textContent = totalRemKwh.toFixed(2) + ' kWh'; invRemKwhEl.style.color = remColor; }
 
     // ── Label entity overrides for stat tiles ──
     // Per-row: override active only when global gate ON AND label text ≠ its default
-    const labelsOn = !!(this.config._labels_custom_entities);
+    const labelsOn  = !!(this.config._labels_custom_entities);
     const _rowActive = (labelKey, def) => labelsOn && (this.config[labelKey] || def) !== def;
 
-    // Read numeric value from a custom entity key, falling back to `fallback` if unavailable.
-    const _readNum = (entityKey, fallback) => {
-      const s = this._hass && this._hass.states[this.config[entityKey]];
-      if (!s) return fallback;
-      const v = parseFloat(s.state);
-      return (!isNaN(v)) ? v : fallback;
-    };
+    // ─────────────────────────────────────────────────────────────
+    // _smartRead(entityKey) → unified entity reader
+    //
+    // Decision logic — what counts as a true numeric measurement:
+    //   1. unit_of_measurement is non-empty (W, kWh, °C, V, %, A…) → NUMERIC
+    //   2. state_class is 'measurement','total','total_increasing'  → NUMERIC
+    //   3. Everything else (no unit AND no state_class)             → STATE STRING
+    //      This correctly handles battery mode sensors that store
+    //      numeric enum values (0=idle, 1=charging, 2=discharging)
+    //      with no unit — the raw state is shown directly.
+    //
+    // Returns:
+    //   { type:'unavailable' }                → show '--'
+    //   { type:'numeric', val, unit }         → _fmtVal(val, unit)
+    //   { type:'state',   val: cleanedString }→ show string directly
+    // ─────────────────────────────────────────────────────────────
+    const _smartRead = (entityKey) => {
+      const eid = this.config[entityKey];
+      if (!eid) return { type: 'unavailable' };
+      const s = this._hass?.states[eid];
+      if (!s || s.state === 'unavailable' || s.state === 'unknown') return { type: 'unavailable' };
 
-    // Read the HA unit_of_measurement for a custom entity key.
-    const _readUnit = (entityKey) =>
-      this._hass?.states[this.config[entityKey]]?.attributes?.unit_of_measurement || '';
+      const unit       = (s.attributes?.unit_of_measurement ?? '').trim();
+      const stateClass = s.attributes?.state_class ?? '';
+      const isMeasurement = unit !== '' ||
+        stateClass === 'measurement' ||
+        stateClass === 'total' ||
+        stateClass === 'total_increasing';
 
-    // Smart value formatter: respects the entity's own unit.
-    //   W / kW  → auto-range to kW at ≥1000 W
-    //   V       → 3 decimal places
-    //   °C / °F → 1 decimal place
-    //   %       → 1 decimal place
-    //   kWh / Wh / MWh → 2 decimal places
-    //   anything else  → 2 decimal places
-    // Also returns a colour appropriate for the unit.
-    const _fmtCustom = (val, unit) => {
-      const u = (unit || '').trim();
-      let text, color;
-      if (u === 'W') {
-        if (Math.abs(val) >= 1000) { text = (val / 1000).toFixed(2) + ' kW'; }
-        else                        { text = val.toFixed(0) + ' W'; }
-        color = '#58a6ff';
-      } else if (u === 'kW') {
-        text = val.toFixed(2) + ' kW';
-        color = '#58a6ff';
-      } else if (u === 'V') {
-        text = val.toFixed(3) + ' V';
-        color = this._cellVoltColor(val);
-      } else if (u === '°C' || u === '°F' || u === 'C' || u === 'F') {
-        text = val.toFixed(1) + ' ' + (u.startsWith('°') ? u : '°' + u);
-        color = this._cellTempColor(val);
-      } else if (u === '%') {
-        text = val.toFixed(1) + ' %';
-        color = this._socColor(val);
-      } else if (u === 'kWh' || u === 'Wh' || u === 'MWh') {
-        text = val.toFixed(2) + ' ' + u;
-        color = '#f4d03f';
-      } else if (u === 'A') {
-        text = val.toFixed(1) + ' A';
-        color = '#cde';
-      } else {
-        // Unknown unit — show value + unit as-is
-        text = val.toFixed(2) + (u ? ' ' + u : '');
-        color = '#cde';
+      if (isMeasurement) {
+        const num = parseFloat(s.state);
+        if (!isNaN(num)) return { type: 'numeric', val: num, unit };
+        // Has unit/state_class but non-numeric state (sensor misconfigured) — show as state
+        return { type: 'state', val: s.state };
       }
-      return { text, color };
+
+      // No unit AND no state_class → treat as a state/enum entity.
+      // Show the raw state string whether it is "charging", "1", "net_balance", etc.
+      const cleaned = s.state.replace(/[_-]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+      return { type: 'state', val: cleaned };
     };
 
-    // Cell temp tile
-    const cellTempCustom = _rowActive('label_cell_temp_minmax', 'CELL TEMP MIN/MAX') && this.config.label_entity_cell_temp;
-    const temp1Final = cellTempCustom ? _readNum('label_entity_cell_temp', temp1_1) : temp1_1;
-    const cellTempUnit = cellTempCustom ? _readUnit('label_entity_cell_temp') : '°C';
+    // ─────────────────────────────────────────────────────────────
+    // _fmtVal(val, unit) → numeric formatter with semantic colour
+    //   W        → auto-switch to kW at ≥1000 W
+    //   kW       → 2 dp
+    //   V        → 3 dp  (cell-voltage colour)
+    //   °C / °F  → 1 dp  (cell-temp colour)
+    //   %        → 1 dp  (SOC colour)
+    //   kWh/Wh/MWh → 2 dp
+    //   A        → 1 dp
+    //   Hz / rpm → 1 dp
+    //   other    → 2 dp, neutral colour
+    // ─────────────────────────────────────────────────────────────
+    const _fmtVal = (val, unit) => {
+      const u = (unit || '').trim();
+      if (u === 'W') {
+        return { text: Math.abs(val) >= 1000 ? (val / 1000).toFixed(2) + ' kW' : val.toFixed(0) + ' W', color: '#58a6ff' };
+      }
+      if (u === 'kW')  return { text: val.toFixed(2) + ' kW',                          color: '#58a6ff' };
+      if (u === 'V') {
+        // Cell voltage (< 5 V): 3 dp + cell-volt colour range
+        // Pack / system voltage (>= 5 V): 1 dp + neutral colour (cellVoltColor tuned for 2.8-3.7 V only)
+        return val < 5
+          ? { text: val.toFixed(3) + ' V', color: this._cellVoltColor(val) }
+          : { text: val.toFixed(1) + ' V', color: '#c9d1d9' };
+      }
+      if (u === '°C' || u === 'C') return { text: val.toFixed(1) + ' °C',             color: this._cellTempColor(val) };
+      if (u === '°F' || u === 'F') return { text: val.toFixed(1) + ' °F',             color: this._cellTempColor((val - 32) * 5 / 9) };
+      if (u === '%')   return { text: val.toFixed(1) + ' %',                            color: this._socColor(val) };
+      if (u === 'kWh') return { text: val.toFixed(2) + ' kWh',                          color: '#f4d03f' };
+      if (u === 'Wh')  return { text: val.toFixed(0) + ' Wh',                           color: '#f4d03f' };
+      if (u === 'MWh') return { text: val.toFixed(3) + ' MWh',                          color: '#f4d03f' };
+      if (u === 'A')   return { text: val.toFixed(1) + ' A',                            color: '#a8c7fa' };
+      if (u === 'Hz')  return { text: val.toFixed(1) + ' Hz',                           color: '#c9d1d9' };
+      if (u === 'rpm') return { text: val.toFixed(0) + ' rpm',                          color: '#c9d1d9' };
+      // Unknown unit — display as-is with neutral colour
+      return { text: val.toFixed(2) + (u ? ' ' + u : ''),                               color: '#c9d1d9' };
+    };
 
-    // BMS temp tile
-    const bmsTempCustom = _rowActive('label_bms_temp', 'BMS TEMP') && this.config.label_entity_bms_temp;
-    const mosFinal = bmsTempCustom ? _readNum('label_entity_bms_temp', mos1) : mos1;
-    const bmsTempUnit = bmsTempCustom ? _readUnit('label_entity_bms_temp') : '°C';
+    // ── Apply label-override or native values to each stat tile ──
 
-    // Min cell tile
-    const minCellCustom = _rowActive('label_min_cell', 'Min Cell') && this.config.label_entity_min_cell;
-    const minCellFinal = minCellCustom ? _readNum('label_entity_min_cell', minCell1) : minCell1;
-    const minCellUnit  = minCellCustom ? _readUnit('label_entity_min_cell') : 'V';
-
-    // Max cell tile
-    const maxCellCustom = _rowActive('label_max_cell', 'Max Cell') && this.config.label_entity_max_cell;
-    const maxCellFinal = maxCellCustom ? _readNum('label_entity_max_cell', maxCell1) : maxCell1;
-    const maxCellUnit  = maxCellCustom ? _readUnit('label_entity_max_cell') : 'V';
-
-    // Batt dis tile
-    const battDisCustom = _rowActive('label_batt_dis', 'Batt Dis.') && this.config.label_entity_batt_dis;
-    const battDisFinal  = battDisCustom ? _readNum('label_entity_batt_dis', battDis1) : battDis1;
-    const battDisUnit   = battDisCustom ? _readUnit('label_entity_batt_dis') : 'kWh';
-
-    // ── Apply overrides to stat tiles ──
-    // Fix #16: bTemp1 is only written here (removed redundant native write above)
+    // CELL TEMP MIN/MAX
     const _bT1o = getEl('bTemp1');
     if (_bT1o) {
-      if (cellTempCustom) {
-        const fmt = _fmtCustom(temp1Final, cellTempUnit);
-        _bT1o.textContent = fmt.text;
-        _bT1o.style.color = fmt.color;
+      const cellCustom = _rowActive('label_cell_temp_minmax', 'CELL TEMP MIN/MAX') && this.config.label_entity_cell_temp;
+      if (cellCustom) {
+        const r = _smartRead('label_entity_cell_temp');
+        if (r.type === 'unavailable') {
+          _bT1o.textContent = '--'; _bT1o.style.color = '#8b949e';
+        } else if (r.type === 'state') {
+          _bT1o.textContent = r.val; _bT1o.style.color = '#c9d1d9';
+        } else {
+          const f = _fmtVal(r.val, r.unit);
+          _bT1o.textContent = f.text; _bT1o.style.color = f.color;
+        }
       } else {
-        _bT1o.textContent = temp1Final.toFixed(1) + ' / ' + temp2_1.toFixed(1) + ' °C';
-        _bT1o.style.color = this._cellTempColor(Math.max(temp1Final, temp2_1));
+        // Native: show min / max pair; null → '--'
+        const t1 = temp1_1 !== null ? temp1_1.toFixed(1) : '--';
+        const t2 = temp2_1 !== null ? temp2_1.toFixed(1) : '--';
+        _bT1o.textContent = t1 + ' / ' + t2 + ' °C';
+        const maxT = Math.max(temp1_1 ?? 0, temp2_1 ?? 0);
+        _bT1o.style.color = (temp1_1 === null && temp2_1 === null) ? '#8b949e' : this._cellTempColor(maxT);
       }
     }
-    // Fix #10: BMS temp override replaces the entire tile — never mix custom source with native battery2 MOS
+
+    // BMS TEMP
     const _bT2o = getEl('bTemp2');
     if (_bT2o) {
-      if (bmsTempCustom) {
-        const fmt = _fmtCustom(mosFinal, bmsTempUnit);
-        _bT2o.textContent = fmt.text;
-        _bT2o.style.color = fmt.color;
+      const mosCustom = _rowActive('label_bms_temp', 'BMS TEMP') && this.config.label_entity_bms_temp;
+      if (mosCustom) {
+        const r = _smartRead('label_entity_bms_temp');
+        if (r.type === 'unavailable') {
+          _bT2o.textContent = '--'; _bT2o.style.color = '#8b949e';
+        } else if (r.type === 'state') {
+          _bT2o.textContent = r.val; _bT2o.style.color = '#c9d1d9';
+        } else {
+          const f = _fmtVal(r.val, r.unit);
+          _bT2o.textContent = f.text; _bT2o.style.color = f.color;
+        }
       } else {
-        _bT2o.textContent = mosFinal.toFixed(1) + (dual ? ' / ' + mos2.toFixed(1) : '') + ' °C';
-        _bT2o.style.color = this._cellTempColor(dual ? Math.max(mosFinal, mos2) : mosFinal);
+        // Native: mos1 single or mos1/mos2 pair; null → '--'
+        const m1 = mos1 !== null ? mos1.toFixed(1) : '--';
+        const m2 = (dual && mos2 !== null) ? ' / ' + mos2.toFixed(1) : (dual ? ' / --' : '');
+        _bT2o.textContent = m1 + m2 + ' °C';
+        const maxM = Math.max(mos1 ?? 0, mos2 ?? 0);
+        _bT2o.style.color = (mos1 === null) ? '#8b949e' : this._cellTempColor(maxM);
       }
     }
+
+    // MIN CELL
     const _bMno = getEl('bMinCell');
     if (_bMno) {
-      if (minCellCustom) {
-        const fmt = _fmtCustom(minCellFinal, minCellUnit);
-        _bMno.textContent = fmt.text;
-        _bMno.style.color = fmt.color;
+      const minCustom = _rowActive('label_min_cell', 'Min Cell') && this.config.label_entity_min_cell;
+      if (minCustom) {
+        const r = _smartRead('label_entity_min_cell');
+        if (r.type === 'unavailable') {
+          _bMno.textContent = '--'; _bMno.style.color = '#8b949e';
+        } else if (r.type === 'state') {
+          _bMno.textContent = r.val; _bMno.style.color = '#c9d1d9';
+        } else {
+          const f = _fmtVal(r.val, r.unit);
+          _bMno.textContent = f.text; _bMno.style.color = f.color;
+        }
       } else {
-        _bMno.textContent = minCellFinal.toFixed(3) + ' V';
-        _bMno.style.color = this._cellVoltColor(minCellFinal);
+        _bMno.textContent = minCell1 !== null ? minCell1.toFixed(3) + ' V' : '-- V';
+        _bMno.style.color = minCell1 !== null ? this._cellVoltColor(minCell1) : '#8b949e';
       }
     }
+
+    // MAX CELL
     const _bMxo = getEl('bMaxCell');
     if (_bMxo) {
-      if (maxCellCustom) {
-        const fmt = _fmtCustom(maxCellFinal, maxCellUnit);
-        _bMxo.textContent = fmt.text;
-        _bMxo.style.color = fmt.color;
+      const maxCustom = _rowActive('label_max_cell', 'Max Cell') && this.config.label_entity_max_cell;
+      if (maxCustom) {
+        const r = _smartRead('label_entity_max_cell');
+        if (r.type === 'unavailable') {
+          _bMxo.textContent = '--'; _bMxo.style.color = '#8b949e';
+        } else if (r.type === 'state') {
+          _bMxo.textContent = r.val; _bMxo.style.color = '#c9d1d9';
+        } else {
+          const f = _fmtVal(r.val, r.unit);
+          _bMxo.textContent = f.text; _bMxo.style.color = f.color;
+        }
       } else {
-        _bMxo.textContent = maxCellFinal.toFixed(3) + ' V';
-        _bMxo.style.color = this._cellVoltColor(maxCellFinal);
+        _bMxo.textContent = maxCell1 !== null ? maxCell1.toFixed(3) + ' V' : '-- V';
+        _bMxo.style.color = maxCell1 !== null ? this._cellVoltColor(maxCell1) : '#8b949e';
       }
     }
+
+    // BATT DIS
     const _bDiso = getEl('bBattDis');
     if (_bDiso) {
-      if (battDisCustom) {
-        const fmt = _fmtCustom(battDisFinal, battDisUnit);
-        _bDiso.textContent = fmt.text;
-        _bDiso.style.color = fmt.color;
+      const disCustom = _rowActive('label_batt_dis', 'Batt Dis.') && this.config.label_entity_batt_dis;
+      if (disCustom) {
+        const r = _smartRead('label_entity_batt_dis');
+        if (r.type === 'unavailable') {
+          _bDiso.textContent = '--'; _bDiso.style.color = '#8b949e';
+        } else if (r.type === 'state') {
+          _bDiso.textContent = r.val; _bDiso.style.color = '#c9d1d9';
+        } else {
+          const f = _fmtVal(r.val, r.unit);
+          _bDiso.textContent = f.text; _bDiso.style.color = f.color;
+        }
       } else {
-        _bDiso.textContent = battDis1.toFixed(2) + ' kWh';
-        _bDiso.style.color = '';
+        _bDiso.textContent = battDis1Raw !== null ? battDis1Raw.toFixed(2) + ' kWh' : '-- kWh';
+        _bDiso.style.color = battDis1Raw !== null ? '#c9d1d9' : '#8b949e';
       }
     }
 
@@ -1430,7 +1503,7 @@ class KFlowCard extends HTMLElement {
         }
       }
       if (isChargingEV || isCompleted) {
-        setText('evPowerVal', chargerPower.toFixed(0) + ' W');
+        setText('evPowerVal', chargerPower >= 1000 ? (chargerPower / 1000).toFixed(2) + ' kW' : chargerPower.toFixed(0) + ' W');
         setText('evCurrentVal', chargerCurrent.toFixed(1) + ' A');
         setText('evSocVal', chargerSoc.toFixed(0) + ' %');
         let evEta = '--';
@@ -1461,6 +1534,6 @@ window.customCards.push({
   name: 'K-Flow Card',
   description: 'Real-time solar/battery/grid energy flow card with animated power paths, dual-battery support, EV charger integration, and per-tile label overrides.',
   preview: true,
-  version: '7.4.0',
+  version: '1.2.0',
 });
 customElements.define('k-flow-card', KFlowCard);
